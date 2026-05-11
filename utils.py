@@ -2,6 +2,8 @@ import re
 from datetime import datetime
 from typing import Optional, Tuple
 
+from dateutil import parser as _dateutil_parser
+
 
 def extract_version(summary: str) -> Tuple[int, ...]:
     """
@@ -19,9 +21,9 @@ def fmt_date(iso: Optional[str]) -> str:
     if not iso:
         return "—"
     try:
-        dt = datetime.fromisoformat(iso.replace("Z", "+00:00"))
+        dt = _dateutil_parser.parse(iso)
         return dt.strftime("%Y-%m-%d")
-    except (ValueError, TypeError):
+    except (ValueError, TypeError, OverflowError):
         return str(iso)[:10]
 
 
@@ -30,8 +32,8 @@ def parse_date(iso: Optional[str]) -> Optional[datetime]:
     if not iso:
         return None
     try:
-        return datetime.fromisoformat(iso.replace("Z", "+00:00")).replace(tzinfo=None)
-    except (ValueError, TypeError):
+        return _dateutil_parser.parse(iso).replace(tzinfo=None)
+    except (ValueError, TypeError, OverflowError):
         return None
 
 

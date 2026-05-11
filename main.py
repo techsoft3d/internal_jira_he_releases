@@ -16,6 +16,7 @@ from jira_client import connect_jira
 from jira_fetch import fetch_children, fetch_release_epics
 from models import ChildIssue, Epic
 from renderers.console import print_timeline
+from renderers.html.builder import build_html
 from utils import extract_version
 
 
@@ -60,8 +61,10 @@ def main():
 
     # 3. Render
     if args.output == "html":
-        # TODO: wire up HTML renderer (Commit 8)
-        print("HTML output not yet implemented.")
+        html = build_html(releases, jira_url)
+        out = Path(args.html_file)
+        out.write_text(html, encoding="utf-8")
+        print(f"\nHTML report written to {out.resolve()}")
     else:
         for epic, children in releases:
             print_timeline(epic, children)

@@ -25,11 +25,15 @@ cp config.ini.example config.ini
 ## Usage
 
 ```bash
-# Console output
+# Console output (default)
 python main.py --release 2025.8.0
 
-# Explicit output format
-python main.py --release 2025.8.0 --output console
+# HTML report
+python main.py --release 2025.8.0 --output html
+python main.py --release 2025.8.0 --output html --html-file my_report.html
+
+# Filter by year
+python main.py --year 2026 --output html
 ```
 
 ---
@@ -50,7 +54,9 @@ internal_jira_he_releases/
 │
 ├── renderers/
 │   ├── console.py           # print_timeline()  (--output console)
-│   └── html/                # HTML renderer (planned)
+│   └── html/
+│       ├── gantt.py         # build_gantt_html()
+│       └── builder.py       # build_html()      (--output html)
 │
 └── tests/
 ```
