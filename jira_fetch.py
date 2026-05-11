@@ -1,7 +1,8 @@
-from typing import List, Optional, cast
+from typing import List, Optional
 
 from jira import JIRA, Issue
 
+from jira_client import fetch_changelog, search_jql
 from models import ChildIssue, Epic
 
 
@@ -34,7 +35,7 @@ def fetch_release_epics(
         f"ORDER BY created DESC"
     )
     print(f"JQL (epics): {jql}")
-    raw = cast(List[Issue], jira.search_issues(jql, maxResults=100, fields="summary,status,created,updated"))
+    raw = search_jql(jira, jql, fields="summary,status,created,updated", max_results=100)
 
     epics: List[Epic] = []
     for e in raw:
@@ -65,16 +66,16 @@ def fetch_children(jira: JIRA, epic_key: str) -> List[ChildIssue]:
     """
     jql = f'"Parent" = {epic_key} ORDER BY created ASC'
     fields = (
-        "summary,status,priority,assignee,story_points,"
+        "summary,status,priority,assignee,"
         "customfield_10016,created,updated,resolutiondate,issuetype,duedate"
     )
-    raw = cast(List[Issue], jira.search_issues(jql, maxResults=200, fields=fields, expand="changelog"))
+    raw = search_jql(jira, jql, fields=fields, max_results=200)
 
     children: List[ChildIssue] = []
     for c in raw:
         f = c.fields
 
-        sp = getattr(f, "story_points", None) or getattr(f, "customfield_10016", None)
+        sp = getattr(f, "customfield_10016", None)
 
         assignee_name = None
         if f.assignee:
@@ -90,10 +91,11 @@ def fetch_children(jira: JIRA, epic_key: str) -> List[ChildIssue]:
         if f.issuetype:
             issue_type = f.issuetype.name if hasattr(f.issuetype, "name") else str(f.issuetype)
 
-        dev_date = _find_status_date(c.changelog.histories, "Development")
+        histories = fetch_changelog(jira, c.key)
+        dev_date = _find_status_date(histories, "Development")
         start_date = dev_date or str(f.created)
 
-        done_date = _find_status_date(c.changelog.histories, "Done")
+        done_date = _find_status_date(histories, "Done")
         end_date = done_date or (str(f.resolutiondate) if f.resolutiondate else None)
 
         children.append(ChildIssue(

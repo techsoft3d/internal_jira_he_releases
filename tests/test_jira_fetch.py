@@ -128,15 +128,15 @@ class TestFindStatusDate:
 
 
 class TestFetchReleaseEpics:
-    def _jira_with(self, epics_raw):
+    def _run(self, raw, *args, **kwargs):
         jira = MagicMock()
-        jira.search_issues.return_value = epics_raw
-        return jira
+        with patch("jira_fetch.search_jql", return_value=raw):
+            return fetch_release_epics(jira, *args, **kwargs)
 
     def test_returns_epic_models(self):
         raw = [_make_raw_epic("HE-1", "[2026.3.0] HE Core release", "In Progress",
                                "2026-01-01T00:00:00+00:00", "2026-03-01T00:00:00+00:00")]
-        result = fetch_release_epics(self._jira_with(raw), "HE CORE release")
+        result = self._run(raw, "HE CORE release")
         assert len(result) == 1
         assert isinstance(result[0], Epic)
         assert result[0].key == "HE-1"
@@ -147,7 +147,7 @@ class TestFetchReleaseEpics:
             _make_raw_epic("HE-1", "[2026.3.0] HE Core release", "Done", "2026-01-01T00:00:00+00:00", "2026-01-01T00:00:00+00:00"),
             _make_raw_epic("HE-2", "[2026.4.0] HE Core release", "Done", "2026-01-01T00:00:00+00:00", "2026-01-01T00:00:00+00:00"),
         ]
-        result = fetch_release_epics(self._jira_with(raw), "HE CORE release", release="2026.3.0")
+        result = self._run(raw, "HE CORE release", release="2026.3.0")
         assert len(result) == 1
         assert result[0].key == "HE-1"
 
@@ -156,7 +156,7 @@ class TestFetchReleaseEpics:
             _make_raw_epic("HE-1", "[2026.3.0] HE Core release", "Done", "2026-01-01T00:00:00+00:00", "2026-01-01T00:00:00+00:00"),
             _make_raw_epic("HE-2", "[2025.9.0] HE Core release", "Done", "2025-01-01T00:00:00+00:00", "2025-01-01T00:00:00+00:00"),
         ]
-        result = fetch_release_epics(self._jira_with(raw), "HE CORE release", year="2025")
+        result = self._run(raw, "HE CORE release", year="2025")
         assert len(result) == 1
         assert result[0].key == "HE-2"
 
@@ -165,13 +165,13 @@ class TestFetchReleaseEpics:
             _make_raw_epic("HE-1", "[2026.3.0] HE Core release", "Done", "2026-01-01T00:00:00+00:00", "2026-01-01T00:00:00+00:00"),
             _make_raw_epic("HE-2", "[2026.4.0] HE Core release", "Done", "2026-01-01T00:00:00+00:00", "2026-01-01T00:00:00+00:00"),
         ]
-        result = fetch_release_epics(self._jira_with(raw), "HE CORE", year="2026", release="2026.3.0")
+        result = self._run(raw, "HE CORE", year="2026", release="2026.3.0")
         assert len(result) == 1
         assert result[0].key == "HE-1"
 
     def test_no_match_returns_empty(self):
         raw = [_make_raw_epic("HE-1", "[2026.3.0] HE Core release", "Done", "2026-01-01T00:00:00+00:00", "2026-01-01T00:00:00+00:00")]
-        result = fetch_release_epics(self._jira_with(raw), "HE CORE release", release="9999.0.0")
+        result = self._run(raw, "HE CORE release", release="9999.0.0")
         assert result == []
 
 
@@ -179,14 +179,20 @@ class TestFetchReleaseEpics:
 
 
 class TestFetchChildren:
-    def _jira_with(self, children_raw):
+    def _run(self, raw, epic_key="HE-1", changelog_per_key=None):
         jira = MagicMock()
-        jira.search_issues.return_value = children_raw
-        return jira
+        changelogs = changelog_per_key or {}
+
+        def _fake_changelog(_, key):
+            return changelogs.get(key, [])
+
+        with patch("jira_fetch.search_jql", return_value=raw), \
+             patch("jira_fetch.fetch_changelog", side_effect=_fake_changelog):
+            return fetch_children(jira, epic_key)
 
     def test_returns_child_issue_models(self):
         raw = [_make_raw_child("HE-42", "Do the thing")]
-        result = fetch_children(self._jira_with(raw), "HE-1")
+        result = self._run(raw)
         assert len(result) == 1
         assert isinstance(result[0], ChildIssue)
         assert result[0].key == "HE-42"
@@ -197,14 +203,13 @@ class TestFetchChildren:
                 _make_changelog_item("status", "Development"),
             ])
         ]
-        raw = [_make_raw_child("HE-42", "Task", changelog_histories=histories,
-                                created="2026-01-01T00:00:00+00:00")]
-        result = fetch_children(self._jira_with(raw), "HE-1")
+        raw = [_make_raw_child("HE-42", "Task", created="2026-01-01T00:00:00+00:00")]
+        result = self._run(raw, changelog_per_key={"HE-42": histories})
         assert result[0].start_date == "2026-02-10T08:00:00+00:00"
 
     def test_start_date_fallback_to_created(self):
         raw = [_make_raw_child("HE-42", "Task", created="2026-01-15T09:00:00+00:00")]
-        result = fetch_children(self._jira_with(raw), "HE-1")
+        result = self._run(raw)
         assert result[0].start_date == "2026-01-15T09:00:00+00:00"
 
     def test_done_date_from_changelog(self):
@@ -213,40 +218,43 @@ class TestFetchChildren:
                 _make_changelog_item("status", "Done"),
             ])
         ]
-        raw = [_make_raw_child("HE-42", "Task", changelog_histories=histories)]
-        result = fetch_children(self._jira_with(raw), "HE-1")
+        raw = [_make_raw_child("HE-42", "Task")]
+        result = self._run(raw, changelog_per_key={"HE-42": histories})
         assert result[0].done_date == "2026-03-01T17:00:00+00:00"
 
     def test_done_date_fallback_to_resolutiondate(self):
         raw = [_make_raw_child("HE-42", "Task", resolutiondate="2026-03-05T00:00:00+00:00")]
-        result = fetch_children(self._jira_with(raw), "HE-1")
+        result = self._run(raw)
         assert result[0].done_date == "2026-03-05T00:00:00+00:00"
 
     def test_done_date_none_when_not_resolved(self):
         raw = [_make_raw_child("HE-42", "Task")]
-        result = fetch_children(self._jira_with(raw), "HE-1")
+        result = self._run(raw)
         assert result[0].done_date is None
 
     def test_assignee_display_name(self):
         raw = [_make_raw_child("HE-42", "Task", assignee_name="Alice Dupont")]
-        result = fetch_children(self._jira_with(raw), "HE-1")
+        result = self._run(raw)
         assert result[0].assignee == "Alice Dupont"
 
     def test_no_assignee(self):
         raw = [_make_raw_child("HE-42", "Task")]
-        result = fetch_children(self._jira_with(raw), "HE-1")
+        result = self._run(raw)
         assert result[0].assignee is None
 
     def test_story_points(self):
         raw = [_make_raw_child("HE-42", "Task", story_points=5.0)]
-        result = fetch_children(self._jira_with(raw), "HE-1")
+        # story_points field was removed — customfield_10016 is used instead
+        raw[0].fields.customfield_10016 = 5.0
+        raw[0].fields.story_points = None
+        result = self._run(raw)
         assert result[0].story_points == 5.0
 
     def test_due_date(self):
         raw = [_make_raw_child("HE-42", "Task", duedate="2026-03-08")]
-        result = fetch_children(self._jira_with(raw), "HE-1")
+        result = self._run(raw)
         assert result[0].due_date == "2026-03-08"
 
     def test_empty_epic_returns_empty_list(self):
-        result = fetch_children(self._jira_with([]), "HE-1")
+        result = self._run([])
         assert result == []
