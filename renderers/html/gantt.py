@@ -1,13 +1,10 @@
-"""
-Gantt chart HTML fragment for one release.
-Bar colours are a single default colour in this commit; colour logic moves to
-colors.py in the next commit.
-"""
+"""Gantt chart HTML fragment for one release."""
 
 from datetime import datetime, timedelta
 from typing import List
 
 from models import ChildIssue, Epic
+from renderers.html.colors import bar_color
 from utils import esc, fmt_date, parse_date
 
 # Release cards are shown in dependency order based on these summary keywords.
@@ -19,8 +16,6 @@ _RELEASE_ORDER_KEYWORDS = [
     "test he in production",    # 5. Test staging
     "close the release",        # 6. Close release
 ]
-
-_DEFAULT_BAR_COLOR = "#4A90D9"
 
 
 def _release_sort_key(item: dict) -> tuple:
@@ -44,6 +39,7 @@ def build_gantt_html(epic: Epic, children: List[ChildIssue], jira_url: str) -> s
             continue
         if end < start:
             end = start
+        color, color_key = bar_color(c, today)
         items.append({
             "key": c.key,
             "summary": c.summary,
@@ -55,6 +51,8 @@ def build_gantt_html(epic: Epic, children: List[ChildIssue], jira_url: str) -> s
             "due_date": c.due_date,
             "_start": start,
             "_end": end,
+            "_color": color,
+            "_color_key": color_key,
         })
 
     if not items:
@@ -116,13 +114,13 @@ def build_gantt_html(epic: Epic, children: List[ChildIssue], jira_url: str) -> s
         duration_days = (item["_end"] - item["_start"]).days
 
         lines.append(
-            f'<div class="timeline-row">'
+            f'<div class="timeline-row" data-color-key="{item["_color_key"]}">'
             f'<div class="timeline-label" title="{tooltip}">'
             f'<a href="{card_url}" target="_blank" class="card-link">{label_text}</a></div>'
             f'<div class="timeline-track">'
             f'{due_marker_html}'
             f'<div class="{bar_class}" '
-            f'style="left:{left:.2f}%;width:{width:.2f}%;background:{_DEFAULT_BAR_COLOR}" '
+            f'style="left:{left:.2f}%;width:{width:.2f}%;background:{item["_color"]}" '
             f'title="{tooltip}">'
             f'<span class="bar-dates">{duration_days}d</span>'
             f'</div></div></div>'
